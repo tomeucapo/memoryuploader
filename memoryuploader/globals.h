@@ -9,9 +9,11 @@
 #ifndef GLOBALS_H_
 #define GLOBALS_H_
 
-#define F_CPU 8000000UL
-#define BAUD  9600
+#define VERSION		"0.1"
+#define F_CPU		8000000UL
+#define BAUD		9600L
 
+#include <util/setbaud.h>
 #include <avr/io.h>
 
 #define sbi(x,y) x |= _BV(y)

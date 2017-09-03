@@ -4,24 +4,34 @@
 * Created: 8/26/2017 2:11:46 AM
 *  Author: tomeu
 */
+
 #include "globals.h"
+#include "xmem.h"
 #include <avr/io.h>
 #include <avr/interrupt.h>
 #include <util/atomic.h>
 
-#define OFFSET 0x8001
-#define MAX_SIZE 0x00FF
 
 volatile uint8_t busy;
+volatile uint8_t count_busy = 0;
 
 ISR(INT0_vect)
 {
      busy = 1;
 }
 
-void XMEMClearBusy()
+uint8_t CheckBusyStatus()
 {
-  	 busy = 0;
+	if (!IsBusy())
+		return 0;
+
+	count_busy++;
+	if (count_busy>MAX_TRY_BUSY)
+	{
+		busy = 0;
+		return 2;
+	}
+	return 1;
 }
 
 void XMEMInit(void)
@@ -32,12 +42,12 @@ void XMEMInit(void)
 	
 	// Enable trigger INT0 on any logical level
 	GICR |= 1<<INT0;
-	MCUCR |= ( 1 << ISC11 ) | ( 1 <<ISC10 );
+	MCUCR |= 1<<ISC11;
 
 	busy = 0;
 }
 
-uint8_t WaitMemory()
+uint8_t IsBusy()
 {
 	uint8_t busy_state = 0;
 	ATOMIC_BLOCK(ATOMIC_FORCEON)
@@ -47,15 +57,41 @@ uint8_t WaitMemory()
 	return busy_state;
 }
 
-void XMEMWrite(unsigned char pos, unsigned char value)
+void XMEMWrite(uint16_t pos, unsigned char value)
 {
 	unsigned char *p = (unsigned char *) (OFFSET+pos);
 	*p = value;
 }
 
+void XMEMReadBuff(uint16_t pos, unsigned char *buff, uint8_t len )
+{
+	unsigned char *p = (unsigned char *) (OFFSET+pos);
+
+	sbi(MCUCR, SRE);
+	for(unsigned int i=0;i<len;i++)
+	{
+		*buff++ = *p++;
+	}
+	cbi(MCUCR, SRE);
+}
+
+void XMEMWriteBuff(uint16_t pos, unsigned char *buff, uint8_t len )
+{
+	while(IsBusy()) {}
+
+	unsigned char *p = (unsigned char *) (OFFSET+pos);
+
+	sbi(MCUCR, SRE);
+	for(unsigned int i=0;i<len;i++)
+	{
+		*p++ = *buff++;
+	}
+	cbi(MCUCR, SRE);
+}
+
 void XMEMClear()
 {
-	while(WaitMemory()) {}
+	while(IsBusy()) {}
 
 	unsigned char *p = (unsigned char *) (OFFSET);
 
@@ -73,10 +109,10 @@ void XMEMClear()
 
 void XMEMTest()
 {
-	while(WaitMemory()) {}
+	while(IsBusy()) {}
 
 	sbi(MCUCR, SRE);
-	for(register unsigned char i=0;i<100;i++)
+	for(register uint16_t i=0;i<100;i++)
 	{
 		XMEMWrite(i, i+48);
 	}

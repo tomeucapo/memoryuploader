@@ -9,11 +9,21 @@
 #ifndef XMEM_H_
 #define XMEM_H_
 
-#define OFFSET 0x8000
+#define OFFSET			0x8000
+#define MAX_SIZE		2048
+#define MAX_TRY_BUSY	1000
+#define MEM_BUSY		1
+#define	MEM_NO_BUSY		0
+#define MEM_TIMEOUT		2	
 
 void XMEMInit(void);
-void XMEMWrite(unsigned char pos, unsigned char value);
+void XMEMWrite(uint16_t pos, unsigned char value);
+void XMEMReadBuff(uint16_t pos, unsigned char *buff, uint8_t len );
+void XMEMWriteBuff(uint16_t pos, unsigned char *buff, uint8_t len);
 void XMEMClear();
+
+uint8_t CheckBusyStatus();
+uint8_t IsBusy();
 
 
 #endif /* XMEM_H_ */

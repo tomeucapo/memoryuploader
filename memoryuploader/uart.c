@@ -1,11 +1,11 @@
 #include "globals.h"
 #include "uart.h"
-#include <util/setbaud.h>
 
 void UARTInit(void) 
 {
    UBRRH = UBRRH_VALUE;
    UBRRL = UBRRL_VALUE;
+	
    #if USE_2X
    UCSRA |= (1 << U2X);
    #else

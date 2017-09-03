@@ -13,16 +13,18 @@
 #include <avr/interrupt.h>
 #include <util/delay.h>
 
-#define CMD_EMPTY	0x00
-#define CMD_CLEAR	0x01
-#define CMD_WRITE   0x02
-#define CMD_TEST	0xEE
-#define CMD_UNKNW	0xFF
-
+// Simple timer for LED blink (status core led)
 ISR(TIMER1_OVF_vect)
 {
 	PORTB ^= (1 << PB0);
-	XMEMClearBusy();
+	
+	switch(CheckBusyStatus())
+	{
+		case MEM_BUSY: sbi(PORTB, PB1);
+					   break;
+		case MEM_NO_BUSY: cbi(PORTB, PB1);
+					   break;
+	}
 }
 
 void TimersInit()
@@ -51,29 +53,37 @@ void setup()
 	  sei();
 }
 
-uint8_t ProcessCommand(unsigned char *commandIn)
+unsigned char commandIn[MAX_COMMAND_SIZE+1];
+
+inline void ClearCommand(unsigned char *command)
 {
-	if (commandIn[0] == '\0')
-	   return CMD_EMPTY;
-
-	if (commandIn[0] == 'T') 
-	   return CMD_TEST;
-	
-	if (commandIn[0] == 'C')
-	   return CMD_CLEAR;
-
-	if (commandIn[0] == 'W')
-		return CMD_WRITE;
-
-	return CMD_UNKNW;
-
+	for(register unsigned char i=0;i<MAX_COMMAND_SIZE+1;i++) { command[i]=0; };
 }
 
-unsigned char commandIn[5];
+#define		BUFFER_LEN		8
 
-void ClearCommand(unsigned char *command)
+unsigned char buffer[BUFFER_LEN];
+uint8_t posBuff = 0;
+
+inline unsigned char AddByteToBuffer(uint8_t data)
 {
-	for(register unsigned char i=0;i<5;i++) { command[i]=0; };
+	if (posBuff<BUFFER_LEN-1)
+	{
+		buffer[posBuff] = data;
+		posBuff++;
+		return 1;
+	}
+
+	buffer[posBuff] = 0;
+	return 0;
+}
+
+inline void WriteBuffer(uint16_t addr)
+{
+	cli();
+	printf("\nST %04X:%04X", addr, addr+(posBuff-1));
+	XMEMWriteBuff(addr, buffer, posBuff);
+	sei();
 }
 
 int main(void)
@@ -83,34 +93,80 @@ int main(void)
 	FILE uartOutput = FDEV_SETUP_STREAM(UARTPutchar, NULL, _FDEV_SETUP_WRITE);
 	stdout = &uartOutput;
 	
-	printf("\a\n*** Console v0.1\n>");
+	unsigned char writeMode = 0;
+	uint16_t initialAddr = 0;
+
+	printf("\a\n*** Console v%s\n>", VERSION);
 	while(1)
 	{
 		ClearCommand(commandIn);
 		unsigned char ok = GetCommand(commandIn);
-		if( ok != 0 )
+		if( !ok )
+			continue;
+	
+		volatile CmdType cmd = ProcessCommand(commandIn);
+		switch (cmd.commandId)
 		{
-			switch (ProcessCommand(commandIn))
-			{
-				case CMD_TEST:
-							printf("Write a test");
-							XMEMTest();
-							break;
-				case CMD_CLEAR:
-							printf("Clear memory");
-							XMEMClear();
-							break;
-				case CMD_WRITE:
-							
-							break;
-				case CMD_EMPTY:
-							break;
+			case CMD_TEST:
+						printf("TEST");
+						XMEMTest();
+						break;
+			case CMD_CLEAR:
+						printf("CLEAR");
+						XMEMClear();
+						break;
+			case CMD_READ:
+						{
+							unsigned char readBuff[100];
+							XMEMReadBuff( cmd.currentAddr, readBuff, 100 );
+							for(register unsigned int i = 0;i<100;i++)
+							{
+								if (i%8==0)
+									printf("\n%04X: ", cmd.currentAddr+i);
+								printf("%02X ", (int)readBuff[i]);
+							}
+						}
+						break;
+			case CMD_WRITE:
+						if (!writeMode)
+							initialAddr = cmd.currentAddr;
+						
+						writeMode = 1;
+						printf("%04X: %02X", cmd.currentAddr, cmd.currentData);
+						break;
+			case CMD_EMPTY:
+						writeMode = 0;
+						break;
+			case CMD_ERR: 
+						printf("\nERR");
+						break;
 
-				default:	printf("UNK\n");
-							break;
-			}
-			printf("\n>");
+			case CMD_VERSION:
+						printf("Version %s\n",VERSION);
+						break;
+
+			default:	printf("\nUNK");
+						break;
 		}
+		
+		if (writeMode)
+		{
+			if (!AddByteToBuffer(cmd.currentData))
+			{
+				WriteBuffer(initialAddr);
+				initialAddr += posBuff;
+				posBuff = 0;
+			}			
+		} else {
+			if (posBuff>0)
+			{
+				WriteBuffer(initialAddr);
+				posBuff = 0;
+				initialAddr = 0;
+			}
+		}
+
+		printf("\n%c", writeMode ?  '<' : '>');				
 	}
 }
 
