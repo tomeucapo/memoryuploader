@@ -34,6 +34,22 @@
 	 return 0;
  }
 
+ /************************************************************************/
+ /*  Fletcher 16 bit checksum calculation                                */
+ /************************************************************************/
+
+ inline unsigned int ChecksumBuffer()
+ {
+	uint16_t sum1 = 0, sum2 = 0;
+
+	for(register unsigned char i=0;i<BUFFER_LEN;i++) 
+	{ 
+		sum1 = (sum1 + buffer[i]) % 255; 
+		sum2 = (sum2 + sum1) % 255;
+	}
+	return (sum2 << 8) | sum1;
+ }
+
  inline unsigned int WriteBuffer(uint16_t addr)
  {
 	 unsigned int writePos = XMEMWriteBuff(addr, buffer, posBuff);

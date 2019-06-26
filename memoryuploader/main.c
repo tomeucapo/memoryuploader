@@ -169,7 +169,7 @@ int main(void)
 						if (!AddByteToBuffer( dataWrite ))
 						{
 							lastAddr = WriteBuffer(initialAddr);
-							printf("ST %04X:%04X\n", initialAddr, lastAddr);
+							printf("ST %04X:%04X %04X\n", initialAddr, lastAddr, ChecksumBuffer());
 							initialAddr += lastAddr;
 							ClearBuffer();
 						}
@@ -183,7 +183,7 @@ int main(void)
 				if (!EmptyBuffer())
 				{
 					lastAddr = WriteBuffer(initialAddr);
-					printf("ST %04X:%04X\n", initialAddr, lastAddr);
+					printf("ST %04X:%04X %04X\n", initialAddr, lastAddr, ChecksumBuffer());
 					ClearBuffer();
 					initialAddr = 0;
 				}

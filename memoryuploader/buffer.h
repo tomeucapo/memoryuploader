@@ -15,5 +15,6 @@ void ClearBuffer();
 unsigned char EmptyBuffer();
 unsigned char AddByteToBuffer(unsigned char);
 unsigned int WriteBuffer(uint16_t);
+unsigned int ChecksumBuffer();
 
 #endif /* BUFFER_H_ */
