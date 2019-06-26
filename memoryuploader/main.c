@@ -9,6 +9,7 @@
 #include "uart.h"
 #include "xmem.h"
 #include "command.h"
+#include "buffer.h"
 
 #include <avr/interrupt.h>
 #include <util/delay.h>
@@ -16,13 +17,13 @@
 // Simple timer for LED blink (status core led)
 ISR(TIMER1_OVF_vect)
 {
-	PORTB ^= (1 << PB0);
+	PORTB ^= (1 << PB1);
 	
 	switch(CheckBusyStatus())
 	{
-		case MEM_BUSY: sbi(PORTB, PB1);
+		case MEM_BUSY: sbi(PORTB, PB0);
 					   break;
-		case MEM_NO_BUSY: cbi(PORTB, PB1);
+		case MEM_NO_BUSY: cbi(PORTB, PB0);
 					   break;
 	}
 }
@@ -36,54 +37,79 @@ void TimersInit()
 
 void setup()
 {
-	  DDRB = (1<<DDB0);	//PORTB as OUTPUT
-	  PORTB = 0x00;		//All pins of PORTB LOW	
+	  DDRB = 0b00000111; 
+	  PORTB = 0x00;		
 
 	  PORTD = 0x00;
 	  DDRD = 0x00;
 
-	  DDRC = 0x00;
+	  DDRC = 0xFF;
 	  PORTC = 0x00;
+	   
+	  // Enable trigger INT0 on any logical level
+	  GICR |= 1<<INT0;
+	  MCUCR |= 1<<ISC11;
 
 	  XMEMInit();
 	  TimersInit();
-	  UARTInit();
+	  UARTInit(51);
 	  InitCommand();
-
+	  
 	  sei();
 }
 
 unsigned char commandIn[MAX_COMMAND_SIZE+1];
 
-inline void ClearCommand(unsigned char *command)
+uint16_t initialAddr = 0, lastAddr = 0;
+
+inline void ClearCommandBuffer(unsigned char *command)
 {
-	for(register unsigned char i=0;i<MAX_COMMAND_SIZE+1;i++) { command[i]=0; };
+	 for(register unsigned char i=0;i<MAX_COMMAND_SIZE+1;i++) { command[i]=0; };
 }
 
-#define		BUFFER_LEN		8
-
-unsigned char buffer[BUFFER_LEN];
-uint8_t posBuff = 0;
-
-inline unsigned char AddByteToBuffer(uint8_t data)
+unsigned char CommandProcessor(unsigned char currentState, CmdType cmd)
 {
-	if (posBuff<BUFFER_LEN-1)
-	{
-		buffer[posBuff] = data;
-		posBuff++;
-		return 1;
-	}
+		unsigned char nextState = currentState;
+		
+		switch (cmd.commandId)
+		{
+			case CMD_TEST:
+						printf("\nTEST");
+						XMEMTest();
+						break;
+			case CMD_CLEAR:
+						printf("\nCLEAR");
+						XMEMClear();
+						break;
+			case CMD_READ:
+						nextState = STATE_RD_MEM;
+						break;
+			case CMD_WRITE:
+						nextState = STATE_BEGIN_WR_MEM;
+						break;
 
-	buffer[posBuff] = 0;
-	return 0;
-}
+			case CMD_LAST_ADDR:
+						printf("%04X", lastAddr);
+						break;
 
-inline void WriteBuffer(uint16_t addr)
-{
-	cli();
-	printf("\nST %04X:%04X", addr, addr+(posBuff-1));
-	XMEMWriteBuff(addr, buffer, posBuff);
-	sei();
+			case CMD_EMPTY:
+						if (currentState == STATE_WR_MEM)
+							nextState = STATE_END_WR_MEM;
+						break;
+
+			case CMD_ERR: 
+						printf("\nERR");
+						break;
+
+			case CMD_VERSION:
+						printf("\nVersion %s",VERSION);
+						break;
+
+			default:	printf("\nUNK");
+						break;
+		}
+
+		return nextState;
 }
 
 int main(void)
@@ -93,80 +119,103 @@ int main(void)
 	FILE uartOutput = FDEV_SETUP_STREAM(UARTPutchar, NULL, _FDEV_SETUP_WRITE);
 	stdout = &uartOutput;
 	
-	unsigned char writeMode = 0;
-	uint16_t initialAddr = 0;
+	unsigned char currentState = STATE_CMD, nextState = STATE_CMD;
+	
+	printf("\a\n*** Console Memory v%s\n", VERSION);
+	printf("*** TCC 2019 (C)\n");
+    printf("    Memory size = %d bytes\n\n>", XMEMSize());
+	UARTFlush();
 
-	printf("\a\n*** Console v%s\n>", VERSION);
+	volatile CmdType cmd;
+
 	while(1)
 	{
-		ClearCommand(commandIn);
-		unsigned char ok = GetCommand(commandIn);
-		if( !ok )
-			continue;
-	
-		volatile CmdType cmd = ProcessCommand(commandIn);
-		switch (cmd.commandId)
+	    switch (currentState)
 		{
-			case CMD_TEST:
-						printf("TEST");
-						XMEMTest();
-						break;
-			case CMD_CLEAR:
-						printf("CLEAR");
-						XMEMClear();
-						break;
-			case CMD_READ:
+			case STATE_CMD:
+				ClearCommandBuffer(commandIn);
+				unsigned char ok = ReadLine(commandIn);
+				if( !ok )
+					continue;
+				cmd = ProcessCommand(commandIn);
+				nextState = CommandProcessor(currentState, cmd);
+				break;
+
+			case STATE_BEGIN_WR_MEM:
+				PORTB |= (1 << PB2);
+				nextState = STATE_WR_MEM;
+				initialAddr = cmd.currentAddr;
+				
+				printf("\n%04X: WAITING_DATA\n", cmd.currentAddr);
+				ClearBuffer();
+				break;
+			
+			case STATE_WR_MEM: 
+			{
+				unsigned char bufferIn[MAX_COMMAND_SIZE-1];
+				volatile unsigned char end = 0;
+				volatile uint16_t addr = initialAddr;
+				while( !end )
+				{
+					ClearCommandBuffer(bufferIn);
+					if ( !ReadLine(bufferIn) )
+						continue;
+
+					if (bufferIn[0]=='.') {
+						end = 1;
+					} else {				
+						volatile uint8_t dataWrite = (uint8_t) a_to_uint16(bufferIn);
+						printf("%04X: %02X\n", addr++, dataWrite);
+						if (!AddByteToBuffer( dataWrite ))
 						{
-							unsigned char readBuff[100];
-							XMEMReadBuff( cmd.currentAddr, readBuff, 100 );
-							for(register unsigned int i = 0;i<100;i++)
-							{
-								if (i%8==0)
-									printf("\n%04X: ", cmd.currentAddr+i);
-								printf("%02X ", (int)readBuff[i]);
-							}
+							lastAddr = WriteBuffer(initialAddr);
+							printf("ST %04X:%04X\n", initialAddr, lastAddr);
+							initialAddr += lastAddr;
+							ClearBuffer();
 						}
-						break;
-			case CMD_WRITE:
-						if (!writeMode)
-							initialAddr = cmd.currentAddr;
-						
-						writeMode = 1;
-						printf("%04X: %02X", cmd.currentAddr, cmd.currentData);
-						break;
-			case CMD_EMPTY:
-						writeMode = 0;
-						break;
-			case CMD_ERR: 
-						printf("\nERR");
-						break;
-
-			case CMD_VERSION:
-						printf("Version %s\n",VERSION);
-						break;
-
-			default:	printf("\nUNK");
-						break;
-		}
-		
-		if (writeMode)
-		{
-			if (!AddByteToBuffer(cmd.currentData))
-			{
-				WriteBuffer(initialAddr);
-				initialAddr += posBuff;
-				posBuff = 0;
-			}			
-		} else {
-			if (posBuff>0)
-			{
-				WriteBuffer(initialAddr);
-				posBuff = 0;
-				initialAddr = 0;
+					}
+				}
+				nextState = STATE_END_WR_MEM;
 			}
-		}
+			break;
 
-		printf("\n%c", writeMode ?  '<' : '>');				
+			case STATE_END_WR_MEM:
+				if (!EmptyBuffer())
+				{
+					lastAddr = WriteBuffer(initialAddr);
+					printf("ST %04X:%04X\n", initialAddr, lastAddr);
+					ClearBuffer();
+					initialAddr = 0;
+				}
+				PORTB &= ~(1 << PB2);
+
+				nextState = STATE_CMD;
+				break;
+		
+			case STATE_RD_MEM:
+			{
+				if (cmd.haveAddress)
+					lastAddr = cmd.currentAddr;
+
+				printf("\nR %04X:%04X", lastAddr, lastAddr+BLOCK_SIZE);
+				unsigned char readBuff[BLOCK_SIZE];
+				XMEMReadBuff( lastAddr, readBuff, BLOCK_SIZE );
+				for(register unsigned int i = 0;i<BLOCK_SIZE;i++)
+				{
+					if (lastAddr%8==0)
+						printf("\n%04X: ", lastAddr);
+					printf("%02X ", (unsigned char)readBuff[i]);
+					lastAddr++;
+				}
+			}
+			nextState = STATE_CMD;
+			break;
+		} 
+
+		if (currentState != STATE_WR_MEM && currentState != STATE_BEGIN_WR_MEM)
+			printf("\n>");
+
+		currentState = nextState;
 	}
 }
 

@@ -1,19 +1,12 @@
 #include "globals.h"
 #include "uart.h"
 
-void UARTInit(void) 
+void UARTInit() 
 {
-   UBRRH = UBRRH_VALUE;
-   UBRRL = UBRRL_VALUE;
-	
-   #if USE_2X
-   UCSRA |= (1 << U2X);
-   #else
-   UCSRA &= ~(1 << U2X);
-   #endif
-
-   UCSRC = (1<<UCSZ1) | (1<<UCSZ0);			      /* 8-bit data */
-   UCSRB = (1<<RXEN) | (1<<TXEN) | (1<<RXCIE);   /* Enable RX and TX */
+	UBRRH = (BAUDRATE>>8);                      // shift the register right by 8 bits
+	UBRRL = BAUDRATE;                           // set baud rate
+	UCSRB|= (1<<TXEN)|(1<<RXEN)| (1<<RXCIE);                // enable receiver and transmitter
+	UCSRC|= (1<<URSEL)|(1<<UCSZ0)|(1<<UCSZ1);   // 8bit data format
 }
 
 int UARTPutchar(char c, FILE *stream)
@@ -21,12 +14,22 @@ int UARTPutchar(char c, FILE *stream)
 	if (c == '\n') {
 		UARTPutchar('\r', stream);
 	}
-	loop_until_bit_is_set(UCSRA, UDRE);
+	
+	while (!(UCSRA & (1<<UDRE)))
+	;
+
 	UDR = c;
 	return 0;
 }
 
 char UARTGetchar(FILE *stream) {
-	loop_until_bit_is_set(UCSRA, RXC);
+	while (!(UCSRA & (1<<RXC)))
+	;
 	return UDR;
+}
+
+void UARTFlush(void)
+{
+	unsigned char dummy;
+	while(UCSRA & (1<<RXC)) dummy = UDR;
 }
