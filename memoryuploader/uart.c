@@ -11,9 +11,9 @@ void UARTInit()
 
 int UARTPutchar(char c, FILE *stream)
 {
-	if (c == '\n') {
+	/*if (c == '\n') {
 		UARTPutchar('\r', stream);
-	}
+	}*/
 	
 	while (!(UCSRA & (1<<UDRE)))
 	;

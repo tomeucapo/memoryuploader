@@ -105,10 +105,13 @@ void XMEMReadBuff(uint16_t pos, unsigned char *buff, uint8_t len )
 
 int XMEMWriteBuff(uint16_t pos, unsigned char *buff, uint8_t len )
 {
+	if (len == 0)
+		return 0;
+
 	while(IsBusy()) {}
 
 	unsigned char *p = (unsigned char *) (OFFSET+pos);
-	unsigned int i=0;
+	register unsigned int j = 0;
 
 	DDRC = 0xFF;
 	PORTC = 0x00;
@@ -116,17 +119,16 @@ int XMEMWriteBuff(uint16_t pos, unsigned char *buff, uint8_t len )
 	SFIOR = (1<<XMM2) | (1<<XMM0);
 
 	sbi(MCUCR, SRE);
-	for(i=0;i<len;i++)
+	for(register unsigned int i = 0 ; i < len && pos + i < MAX_SIZE; i++)
 	{
-		if (pos + i > MAX_SIZE)
-			break;
 		*p++ = buff[i];
+		j = i;
 	}
 	cbi(MCUCR, SRE);
 	
 	SFIOR = 0x00;
 
-	return i;
+	return j;
 }
 
 void XMEMClear()

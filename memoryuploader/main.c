@@ -74,11 +74,11 @@ unsigned char CommandProcessor(unsigned char currentState, CmdType cmd)
 		switch (cmd.commandId)
 		{
 			case CMD_TEST:
-						printf("\nTEST");
+						printf("TEST\r\n");
 						XMEMTest();
 						break;
 			case CMD_CLEAR:
-						printf("\nCLEAR");
+						printf("CLEAR\r\n");
 						XMEMClear();
 						break;
 			case CMD_READ:
@@ -93,19 +93,21 @@ unsigned char CommandProcessor(unsigned char currentState, CmdType cmd)
 						break;
 
 			case CMD_EMPTY:
+						if (currentState == STATE_CMD)
+							printf("\r\n");
 						if (currentState == STATE_WR_MEM)
 							nextState = STATE_END_WR_MEM;
 						break;
 
 			case CMD_ERR: 
-						printf("\nERR");
+						printf("ERR\r\n");
 						break;
 
 			case CMD_VERSION:
-						printf("\nVersion %s",VERSION);
+						printf("Version %s\r\n",VERSION);
 						break;
 
-			default:	printf("\nUNK");
+			default:	printf("UNK\r\n");
 						break;
 		}
 
@@ -121,9 +123,9 @@ int main(void)
 	
 	unsigned char currentState = STATE_CMD, nextState = STATE_CMD;
 	
-	printf("\a\n*** Console Memory v%s\n", VERSION);
-	printf("*** TCC 2019 (C)\n");
-    printf("    Memory size = %d bytes\n\n>", XMEMSize());
+	printf("*** Console Memory v%s\r\n", VERSION);
+	printf("*** TCC 2019 (C)\r\n");
+    printf("    Memory size = %d bytes\a\r\n>", XMEMSize());
 	UARTFlush();
 
 	volatile CmdType cmd;
@@ -146,7 +148,7 @@ int main(void)
 				nextState = STATE_WR_MEM;
 				initialAddr = cmd.currentAddr;
 				
-				printf("\n%04X: WAITING_DATA\n", cmd.currentAddr);
+				printf("%04X: WAITING_DATA\r\n", cmd.currentAddr);
 				ClearBuffer();
 				break;
 			
@@ -165,12 +167,12 @@ int main(void)
 						end = 1;
 					} else {				
 						volatile uint8_t dataWrite = (uint8_t) a_to_uint16(bufferIn);
-						printf("%04X: %02X\n", addr++, dataWrite);
+						printf("%04X: %02X\r\n", addr++, dataWrite);
 						if (!AddByteToBuffer( dataWrite ))
 						{
-							lastAddr = WriteBuffer(initialAddr);
-							printf("ST %04X:%04X %04X\n", initialAddr, lastAddr, ChecksumBuffer());
-							initialAddr += lastAddr;
+							register unsigned int nextAddr = WriteBuffer(initialAddr);
+							printf("ST %04X:%04X %04X\r\n", initialAddr, nextAddr, ChecksumBuffer());
+							initialAddr = addr;
 							ClearBuffer();
 						}
 					}
@@ -183,7 +185,7 @@ int main(void)
 				if (!EmptyBuffer())
 				{
 					lastAddr = WriteBuffer(initialAddr);
-					printf("ST %04X:%04X %04X\n", initialAddr, lastAddr, ChecksumBuffer());
+					printf("ST %04X:%04X %04X\r\n", initialAddr, lastAddr, ChecksumBuffer());
 					ClearBuffer();
 					initialAddr = 0;
 				}
@@ -197,13 +199,13 @@ int main(void)
 				if (cmd.haveAddress)
 					lastAddr = cmd.currentAddr;
 
-				printf("\nR %04X:%04X", lastAddr, lastAddr+BLOCK_SIZE);
+				printf("\r\nR %04X:%04X\r\n", lastAddr, lastAddr+BLOCK_SIZE);
 				unsigned char readBuff[BLOCK_SIZE];
 				XMEMReadBuff( lastAddr, readBuff, BLOCK_SIZE );
 				for(register unsigned int i = 0;i<BLOCK_SIZE;i++)
 				{
 					if (lastAddr%8==0)
-						printf("\n%04X: ", lastAddr);
+						printf("\r\n%04X: ", lastAddr);
 					printf("%02X ", (unsigned char)readBuff[i]);
 					lastAddr++;
 				}
@@ -212,8 +214,8 @@ int main(void)
 			break;
 		} 
 
-		if (currentState != STATE_WR_MEM && currentState != STATE_BEGIN_WR_MEM)
-			printf("\n>");
+		if (currentState == STATE_CMD || nextState == STATE_CMD)
+			printf(">");
 
 		currentState = nextState;
 	}

@@ -25,12 +25,19 @@
 
  inline unsigned char AddByteToBuffer(unsigned char data)
  {
-	 if (posBuff<BUFFER_LEN)
+	 if (posBuff==BUFFER_LEN-1)
 	 {
-		 buffer[posBuff++] = data;
-		 return 1;
+		buffer[posBuff] = data;
+		return 0;
 	 }
 
+	 if (posBuff<BUFFER_LEN)
+	 {
+		 buffer[posBuff] = data;
+		 posBuff++;
+		 return 1;
+	 }
+	
 	 return 0;
  }
 
@@ -52,6 +59,10 @@
 
  inline unsigned int WriteBuffer(uint16_t addr)
  {
-	 unsigned int writePos = XMEMWriteBuff(addr, buffer, posBuff);
-	 return addr+writePos;
+	 if (posBuff==0)
+		return 0;
+
+	 register unsigned int writePos = XMEMWriteBuff(addr, buffer, posBuff+1);
+	 //printf("writePos = %04X addr = %04X nextAddr = %04X\n", writePos, addr, addr+writePos);
+	 return (addr+writePos);
  }
